@@ -9,13 +9,10 @@ class Trello2WR
   attr_reader :user, :board, :week
   @@debug = true
 
-  def initialize(sprint=nil, week)
+  def initialize()
     @config = load_config
 
     authenticate
-
-    @sprint = sprint
-    @week = week
 
     @username = @config['trello']['username']
     @user = find_member(@username)
@@ -48,80 +45,59 @@ class Trello2WR
   end
 
   def find_board
-    board = @config['trello']['boards'].first
-    self.log("*** Getting lists for '#{board}' board")
-    @user.boards.find{|b| b.name == board}
+    board_name = @config['trello']['boards'].first
+    self.log("*** Searching for board '#{board_name}'")
+    board = @user.boards.find{|b| b.name == board_name}
+    raise "ERROR: Board '#{board_name}' not found!" unless board
+    board
   end
 
   def cards(board, list_name)
-    self.log("*** Getting cards for '#{list_name}' list")
-
-    if board
-      lists = board.lists
-
-      if list_name == 'Done'
-        lists = lists.select{|l| l.name.include?('Done')}
-        list = @sprint ? lists.select{|l| l.name.include?(@sprint.to_s) }.first : lists.sort_by{|l| l.id }.last
-
-        self.log("*** Getting cards for '#{list.name}' list (week #{@week})")
-        list.cards.select{|c| c.last_activity_date.to_datetime.cweek == @week && c.member_ids.include?(user.id) }
-      else
-        lists.find{|l| l.name == list_name}.cards.select{|c| c.member_ids.include? self.user.id}
-      end
+    self.log("*** Getting cards for '#{list_name}' list in board '#{board}'")
+    lists = @board.lists
+    list = lists.detect{|l| l.name == list_name}
+    if list
+      return list.cards.reject{|c| ["Fast Lane", "WIP", "README", "Please remember"].any? { |word| c.name.include?(word) } }
     else
-      raise "ERROR: Board '#{list_name}' not found!"
+      raise "ERROR: List '#{list_name}' not found!"
     end
-  end
-
-  # Prepare mail header
-  def subject
-    self.escape("A&O Week ##{self.week} #{self.user.username}")
   end
 
   # Prepare mail body
   def body
     body = ''
-    ['Done', 'In review', 'To Do', 'Doing'].each do |list_name|
-      if list_name.downcase.include? 'done'
-        body += "Accomplishments:\n"
-      elsif list_name.downcase.include? 'review'
-        body += "\nIn review:\n"
-      elsif list_name.downcase.include? 'to do'
-        body += "\nObjectives:\n"
-      end
 
+    body += "  Done:\n"
+    @board.lists.select{|l| l.name.include?('Done 20') }.map(&:name).each do |list_name|
       self.cards(board, list_name).each do |card|
-        if list_name.downcase.include? 'doing'
-          body += "- #{card.name} (##{card.short_id}) [WIP]\n"
-        else
-          body += "- #{card.name} (##{card.short_id})\n"
-        end
+        body += "  - #{card.name}\n"
+      end
+    end
+    body += "\n  Ongoing:\n"
+    ['Demo [5]', 'In Review [4]', 'Dev - Done', 'Dev - In Progress'].each do |list_name|
+      self.cards(board, list_name).each do |card|
+        body += "  - #{card.name}\n"
+      end
+    end
+    body += "\n  Blocked:\n"
+    ['Blocked'].each do |list_name|
+      self.cards(board, list_name).each do |card|
+        body += "  - #{card.name}\n"
+      end
+    end
+    body += "\n  Next:\n"
+    ['Planned [4]', 'To Do [4]'].each do |list_name|
+      self.cards(board, list_name).each do |card|
+        body += "  - #{card.name}\n"
       end
     end
 
-    body += "\n\nNOTE: (#<number>) are Trello board card IDs"
 
-    escape(body)
-  end
-
-  def construct_mail_to_url(recipient, subject, body)
-    headers = { subject: subject, body: body }
-    headers[:cc] = @config['email']['cc'] if @config['email'].has_key?('cc') && @config['email']['cc'].present?
-
-    URI::MailTo.build({:to => recipient, :headers => headers.stringify_keys}).to_s.inspect
+    body
   end
 
   def escape(string)
     URI.escape(string, Regexp.new("[^#{URI::PATTERN::UNRESERVED}]"))
-  end
-
-  def export
-    mailto = self.construct_mail_to_url(@config['email']['recipient'], subject, body)
-    self.log("*** Preparing email, please wait ...")
-
-    system("#{@config['email']['client']} #{mailto}")
-
-    self.log("*** DONE")
   end
 
   def log(message)

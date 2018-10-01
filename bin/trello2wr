@@ -4,19 +4,10 @@ $LOAD_PATH.unshift File.dirname(__FILE__) + '/../lib'
 require 'rubygems'
 require 'trello2wr'
 require 'optparse'
-
-options = { week: Date.today.cweek-1 }
+require 'date'
 
 OptionParser.new do |opts|
   opts.banner = "Usage: trello2wr [options]"
-
-  opts.on("-s", "--sprint [SPRINT NUMBER]", Numeric, "Generate a report for given sprint") do |s|
-    options[:sprint] = s
-  end
-
-  opts.on("-w", "--week [WEEK NUMBER]", Numeric, "Generate a report for given week") do |w|
-    options[:week] = w
-  end
 
   opts.on("-h", "--help", "Prints this help") do
     puts opts
@@ -25,4 +16,4 @@ OptionParser.new do |opts|
 
 end.parse!
 
-Trello2WR.new(options[:sprint], options[:week]).export
+puts Trello2WR.new.body
